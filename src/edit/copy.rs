@@ -14,13 +14,20 @@ impl Default for CopyBuffer {
     }
 }
 
-// 手动实现 Serialize，完美避开外部复杂类型的特征限制
+// 手动实现 Serialize，通过自定义映射避免复杂类型的特征编译错误，同时保持结构完整
 impl Serialize for CopyBuffer {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str("CopyBuffer")
+        use serde::ser::SerializeStruct;
+        let mut s = serializer.serialize_struct("CopyBuffer", 1)?;
+        s.serialize_field("type", &match self {
+            CopyBuffer::Null => "Null",
+            CopyBuffer::Array(_) => "Array",
+            CopyBuffer::Field(_) => "Field",
+        })?;
+        s.end()
     }
 }
 
