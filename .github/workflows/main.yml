@@ -1,4 +1,4 @@
-name: Build ree-dump
+name: Build ree-save-editor
 
 on:
   push:
@@ -13,12 +13,12 @@ jobs:
           lfs: true
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      - name: Build ree-dump
-        run: cargo build --release --bin ree-dump
-      - name: Upload ree-dump and mhwilds dicts
+      - name: Build ree-save-editor
+        run: cargo build --release -p ree-save-editor
+      - name: Upload ree-save-editor and mhwilds dicts
         uses: actions/upload-artifact@v4
         with:
-          name: ree-dump-bundle
+          name: ree-save-editor-bundle
           path: |
-            target/release/ree-dump.exe
+            target/release/ree-save-editor.exe
             assets/mhwilds/
