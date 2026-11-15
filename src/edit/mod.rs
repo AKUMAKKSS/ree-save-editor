@@ -4,7 +4,7 @@ pub mod types;
 use std::{collections::HashMap, fmt::Debug};
 
 use std::collections::HashSet;
-use eframe::egui::{CollapsingHeader,  Response, Ui};
+use eframe::egui::{CollapsingHeader, Response, Ui};
 use crate::edit::copy::CopyBuffer;
 use crate::sdk::asset::Assets;
 use crate::sdk::type_map::{ContentLanguage, FieldInfo, TypeInfo, TypeMap};
@@ -65,7 +65,6 @@ pub struct EditResponse {
     pub changed: bool,
 }
 
-
 impl Default for EditResponse {
     fn default() -> Self {
         Self {
@@ -94,9 +93,7 @@ impl EditResponse {
 }
 
 macro_rules! derive_editable_num {
-    // Match a comma-separated list of types
     ($( $ty:ty ),*) => {
-        // Repeat the implementation block for each type captured ($ty)
         $(
             impl Editable for $ty {
                 fn edit(&mut self, ui: &mut eframe::egui::Ui, _ctx: &mut EditContext) -> EditResponse {
@@ -131,7 +128,6 @@ impl Editable for bool {
     }
 }
 
-
 impl Editable for SaveFlags {
     fn edit(&mut self, ui: &mut Ui, _ctx: &mut EditContext) -> EditResponse {
         ui.vertical(|ui| {
@@ -154,6 +150,16 @@ impl Editable for SaveFlags {
 
 impl Editable for SaveFile {
     fn edit(&mut self, ui: &mut Ui, ctx: &mut EditContext) -> EditResponse {
+        // 原生文件导入导出按钮
+        ui.horizontal(|ui| {
+            if ui.button("📁 导出选定槽位到 JSON").clicked() {
+                let _ = ctx.copy_buffer.export_to_file();
+            }
+            if ui.button("📂 从 JSON 导入并覆盖槽位").clicked() {
+                let _ = ctx.copy_buffer.import_from_file();
+            }
+        });
+
         CollapsingHeader::new("Save Flags")
             .default_open(false)
             .show(ui, |ui| {
@@ -173,20 +179,6 @@ impl Editable for SaveFile {
                 .cloned()
                 .unwrap_or(format!("{:08x}", field.0));
             let header = format!("{field_name}: {type_name}");
-            /*let label = match (type_info, field_name) {
-              (None, Some(field_name)) => format!("{}: {}", field.0, type_info.name),
-              (Some(type_info), Some(field_name)) => format!("{}: {}", field_name, type_info.name),
-              _ => format!("{}: {:08x}", field.0, field.1.hash)
-              };*/
-            /*let header = if let Some(type_info) = type_info {
-              format!("{}: {},{:08x}", field_name, type_info.name, field.1.hash)
-              } else {
-              if let Some(type_name) = ctx.type_map.get_hash_str(field.1.hash) {
-              format!("{}: {},{:08x}", field_name, type_name, field.1.hash)
-              } else {
-              format!("{}: {:08x}", field_name, field.1.hash)
-              }
-              };*/
             CollapsingHeader::new(header)
                 .id_salt(child_id)
                 .default_open(true)
