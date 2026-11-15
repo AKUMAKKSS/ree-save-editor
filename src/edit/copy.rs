@@ -1,6 +1,7 @@
 use crate::save::types::{Class, Field};
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum CopyBuffer {
     Null,
     Array(Class),
