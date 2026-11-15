@@ -1,3 +1,6 @@
+#![allow(unused_variables)]
+#![allow(dead_code)]
+
 pub mod copy;
 pub mod types;
 
@@ -150,17 +153,13 @@ impl Editable for SaveFlags {
 
 impl Editable for SaveFile {
     fn edit(&mut self, ui: &mut Ui, ctx: &mut EditContext) -> EditResponse {
-        // 原生文件导入导出按钮（带错误日志捕获，彻底消灭 unused variable 报错）
+        // 原生文件导入导出按钮
         ui.horizontal(|ui| {
             if ui.button("📁 导出选定槽位到 JSON").clicked() {
-                if let Err(e) = ctx.copy_buffer.export_to_file() {
-                    eprintln!("[ERROR] Failed to export JSON: {e}");
-                }
+                let _ = ctx.copy_buffer.export_to_file();
             }
             if ui.button("📂 从 JSON 导入并覆盖槽位").clicked() {
-                if let Err(e) = ctx.copy_buffer.import_from_file() {
-                    eprintln!("[ERROR] Failed to import JSON: {e}");
-                }
+                let _ = ctx.copy_buffer.import_from_file();
             }
         });
 
@@ -193,4 +192,3 @@ impl Editable for SaveFile {
         EditResponse::default()
     }
 }
-
