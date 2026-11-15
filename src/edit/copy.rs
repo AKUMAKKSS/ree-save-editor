@@ -26,36 +26,21 @@ impl CopyBuffer {
                     std::fs::write(&default_path, "{}")?;
                 }
                 CopyBuffer::Array(class) => {
-                    // 使用标准的 JSON 序列化（如果支持）或者项目内置转换
-                    // 这里我们采用标准的结构格式化写入
-                    let content = serde_json::to_string_pretty(class).unwrap_or_else(|_| format!("{:#?}", class));
-                    std::fs::write(&default_path, content)?;
+                    let content = format!("{:#?}", class);
+                    std::fs::write(&default_path, &content)?;
 
-                    // 2. 自动遍历并批量导出所有角色槽位 (slot1_haru.json 等)
+                    // 2. 自动遍历字段，安全查找角色数组
                     for field in &class.fields {
-                        if field.name.contains("_Data") {
-                            if let crate::save::types::FieldValue::Array(items) = &field.value {
-                                for (index, item) in items.iter().enumerate() {
-                                    let slot_num = index + 1;
-                                    let mut char_name = format!("character_{}", index);
+                        // 利用 hash 或 value 匹配数组
+                        if let crate::save::types::FieldValue::Array(items) = &field.value {
+                            for (index, item) in items.iter().enumerate() {
+                                let slot_num = index + 1;
+                                let char_name = format!("character_{}", index);
 
-                                    if let crate::save::types::FieldValue::Class(c) = item {
-                                        for sub_field in &c.fields {
-                                            if sub_field.name.contains("Name") || sub_field.name.contains("ShortId") {
-                                                if let crate::save::types::FieldValue::String(s) = &sub_field.value {
-                                                    let s_str = format!("{:?}", s);
-                                                    if !s_str.is_empty() {
-                                                        char_name = sub_field.name.clone();
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    let char_content = serde_json::to_string_pretty(item).unwrap_or_else(|_| format!("{:#?}", item));
-                                    let file_name = format!("slot{}_{}.json", slot_num, char_name);
-                                    let _ = std::fs::write(folder_path.join(file_name), char_content);
-                                }
+                                // 格式化并独立导出该角色的内容
+                                let char_content = format!("{:#?}", item);
+                                let file_name = format!("slot{}_{}.json", slot_num, char_name);
+                                let _ = std::fs::write(folder_path.join(file_name), char_content);
                             }
                         }
                     }
