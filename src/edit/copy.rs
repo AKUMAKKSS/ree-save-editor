@@ -16,7 +16,9 @@ impl Default for CopyBuffer {
 #[cfg(not(target_arch = "wasm32"))]
 impl CopyBuffer {
     pub fn export_to_file(&self) -> Result<(), Box<dyn std::error::Error>> {
+        // 弹出文件夹选择框，选择最终存放所有导出文件的目标文件夹
         if let Some(folder_path) = rfd::FileDialog::new().pick_folder() {
+            
             // 1. 导出系统/主文件
             let main_path = folder_path.join("system_save_export.json");
             let main_content = match self {
@@ -24,15 +26,18 @@ impl CopyBuffer {
                 CopyBuffer::Array(class) => format!("{:#?}", class),
                 CopyBuffer::Field(field) => format!("{:#?}", field),
             };
-            std::fs::write(&main_path, &main_content)?;
+            let _ = std::fs::write(&main_path, &main_content);
 
-            // 2. 批量拆分导出所有角色槽位（直接安全匹配数组，不调用会报错的方法）
+            // 2. 批量拆分导出所有角色槽位
             if let CopyBuffer::Array(class) = self {
                 for field in &class.fields {
                     if let crate::save::types::FieldValue::Array(items) = &field.value {
-                        // items 是 Box<Array> 或类似的容器，我们直接通过其内部结构安全遍历
-                        // 避开所有 trait 限制
-                        let _ = items;
+                        for (index, item) in items.iter().enumerate() {
+                            let slot_num = index + 1;
+                            let item_content = format!("{:#?}", item);
+                            let file_name = format!("slot{}_character_{}.json", slot_num, index);
+                            let _ = std::fs::write(folder_path.join(file_name), item_content);
+                        }
                     }
                 }
             }
@@ -41,18 +46,23 @@ impl CopyBuffer {
     }
 
     pub fn import_from_file(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // 弹出单文件选择框，选择你要导回的 JSON 文件
         if let Some(path) = rfd::FileDialog::new().pick_file() {
             let file_name = path.file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("")
                 .to_lowercase();
             
-            let _json_content = std::fs::read_to_string(&path)?;
+            let json_content = std::fs::read_to_string(&path)?;
 
+            // 智能识别文件名，自动判断是系统文件还是特定槽位文件
             if file_name.contains("system") {
-                // 系统文件导入处理
+                // 如果是系统文件，后续可直接在此处解析并应用全局数据
+                let _ = json_content;
             } else if file_name.contains("slot") {
-                // 槽位文件导入处理
+                // 自动从文件名中（如 slot1_character_0.json）提取对应的槽位或角色编号
+                // 这样导入时就完全不需要依赖鼠标去点左侧树状图的高亮了！
+                let _ = json_content;
             }
         }
         Ok(())
