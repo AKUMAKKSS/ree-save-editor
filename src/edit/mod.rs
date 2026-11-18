@@ -154,20 +154,31 @@ impl Editable for SaveFlags {
 impl Editable for SaveFile {
     fn edit(&mut self, ui: &mut Ui, ctx: &mut EditContext) -> EditResponse {
         let mut changed = false;
-        // 原生文件导入导出按钮
+        // 原生文件导入导出按钮 (修改为防呆下拉菜单)
         ui.horizontal(|ui| {
-            if ui.button("📁 导出选定槽位到 JSON").clicked() {
-                if let Err(e) = ctx.copy_buffer.export_to_file(self, ctx.type_map) {
-                    log::error!("[Export Error] {e}");
+            ui.menu_button("📁 导出指定槽位到 JSON", |ui| {
+                for slot_idx in 0..3 {
+                    if ui.button(format!("导出 角色 {} (Slot {})", slot_idx + 1, slot_idx)).clicked() {
+                        if let Err(e) = ctx.copy_buffer.export_to_file(self, ctx.type_map, slot_idx) {
+                            log::error!("[Export Error] {e}");
+                        }
+                        ui.close_menu();
+                    }
                 }
-            }
-            if ui.button("📂 从 JSON 导入并覆盖槽位").clicked() {
-                match ctx.copy_buffer.import_from_file(self, ctx.type_map) {
-                    Ok(true) => changed = true,
-                    Ok(false) => {}
-                    Err(e) => log::error!("[Import Error] {e}"),
+            });
+
+            ui.menu_button("📂 从 JSON 导入并覆盖指定槽位", |ui| {
+                for slot_idx in 0..3 {
+                    if ui.button(format!("导入并覆盖 角色 {} (Slot {})", slot_idx + 1, slot_idx)).clicked() {
+                        match ctx.copy_buffer.import_from_file(self, ctx.type_map, slot_idx) {
+                            Ok(true) => changed = true,
+                            Ok(false) => {}
+                            Err(e) => log::error!("[Import Error] {e}"),
+                        }
+                        ui.close_menu();
+                    }
                 }
-            }
+            });
         });
 
         CollapsingHeader::new("Save Flags")
