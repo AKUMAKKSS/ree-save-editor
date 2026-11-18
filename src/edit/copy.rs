@@ -424,6 +424,7 @@ impl CopyBuffer {
         &self,
         save: &mut SaveFile,
         type_map: &TypeMap,
+        slot_idx: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(file_path) = rfd::FileDialog::new()
             .set_file_name("save_export.json")
@@ -433,7 +434,8 @@ impl CopyBuffer {
                 CopyBuffer::Array(class) => class_to_json(class, type_map),
                 CopyBuffer::Field(field) => field_value_to_json(&field.value, None, type_map),
                 CopyBuffer::Null => match locate_character_slot(save, None) {
-                    SlotLocation::DataSlot(r_idx, f_idx, a_idx) => {
+                    SlotLocation::DataSlot(r_idx, f_idx, _) => {
+                        let a_idx = slot_idx;
                         if let FieldValue::Array(arr) = &save.fields[r_idx].1.fields[f_idx].value {
                             if let Some(FieldValue::Class(c)) = arr.values.get(a_idx) {
                                 class_to_json(c, type_map)
@@ -458,6 +460,7 @@ impl CopyBuffer {
         &mut self,
         save: &mut SaveFile,
         type_map: &TypeMap,
+        slot_idx: usize,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         if let Some(path) = rfd::FileDialog::new().pick_file() {
             let json_content = std::fs::read_to_string(&path)?;
@@ -465,7 +468,8 @@ impl CopyBuffer {
 
             let hunter_id = parsed.get("HunterId").and_then(|v| v.as_str());
             match locate_character_slot(save, hunter_id) {
-                SlotLocation::DataSlot(r_idx, f_idx, a_idx) => {
+                SlotLocation::DataSlot(r_idx, f_idx, _) => {
+                    let a_idx = slot_idx;
                     if let FieldValue::Array(arr) = &mut save.fields[r_idx].1.fields[f_idx].value {
                         if let Some(FieldValue::Class(c)) = arr.values.get_mut(a_idx) {
                             update_class_from_json(c, &parsed, type_map);
@@ -486,3 +490,4 @@ impl CopyBuffer {
         Ok(false)
     }
 }
+
