@@ -48,7 +48,7 @@ fn get_record_chara_id(rec_json: &JsonValue) -> Option<i64> {
     None
 }
 
-/// 将底层 Class 递归转换为修改器可识别的标准带字段名 JSON（内置 DD2 极限瘦身过滤）
+/// 将底层 Class 递归转换为修改器可识别的标准带字段名 JSON（内置 DD2 极限瘦身过滤，不影响荒野）
 fn class_to_json(class: &Class, type_map: &TypeMap) -> JsonValue {
     let mut map = Map::new();
     let type_info = type_map.get_by_hash(class.hash);
@@ -282,9 +282,9 @@ fn update_field_value_from_json(
                 *x = v as i16;
             }
         }
-        FieldValue::U16(x) | FieldValue::C16(v_ref) => {
+        FieldValue::U16(x) | FieldValue::C16(x) => {
             if let Some(v) = json.as_u64() {
-                *v_ref = v as u16;
+                *x = v as u16;
             }
         }
         FieldValue::S32(x) => {
