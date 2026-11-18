@@ -245,7 +245,7 @@ enum SlotLocation {
     None,
 }
 
-/// 纯只读定位角色槽位下标，完全不产生任何可变借用冲突
+/// 纯只读返回下标枚举（不返回任何可变引用，100% 杜绝 E0499）
 fn locate_character_slot(save: &SaveFile, target_hunter_id: Option<&str>) -> SlotLocation {
     let data_hash = murmur3("_Data", 0xffffffff);
 
