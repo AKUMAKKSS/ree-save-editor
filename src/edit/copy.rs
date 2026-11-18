@@ -24,7 +24,7 @@ impl Default for CopyBuffer {
     }
 }
 
-/// 判断某个 DBSaveData Record 是否为主角或主随从数据（包含 _IncreaseParams 或 _Level）
+/// 判断某个 DBSaveData Record 是否为主角或主随从数据（包含 _IncreaseParams 或 CurrentJob）
 fn is_character_record(rec_json: &JsonValue) -> bool {
     if let Some(contexts) = rec_json.get("Contexts").and_then(|c| c.as_array()) {
         for ctx in contexts {
@@ -60,7 +60,7 @@ fn class_to_json(class: &Class, type_map: &TypeMap) -> JsonValue {
             .or_else(|| type_map.get_hash_str(field.hash).cloned())
             .unwrap_or_else(|| format!("0x{:08x}", field.hash));
 
-        // 1. 过滤 DD2 占 4.5MB 的无用腐烂计时器与大地图迷雾冗余字段
+        // 1. 过滤 DD2 占 4.5MB 的无用腐烂计时器与 NPC 历史记录（保留 MapMaskField 支持地图阴影全开）
         if matches!(
             name.as_str(),
             "0x47d5034f"
@@ -72,8 +72,6 @@ fn class_to_json(class: &Class, type_map: &TypeMap) -> JsonValue {
                 | "0x58cfb4c8"
                 | "0xc85b8e98"
                 | "0x60a4c16d"
-                | "MapMaskField"
-                | "MapMaskLocalArea"
         ) {
             continue;
         }
@@ -209,7 +207,6 @@ fn update_class_from_json(class: &mut Class, json: &JsonValue, type_map: &TypeMa
                             "_IsEquipped": 0,
                             "_IsNew": 0
                         });
-                        // 如果新增物品总数超过原数组槽位数，自动克隆标准 12 字段槽位扩容
                         let std_template = arr
                             .values
                             .iter()
@@ -285,9 +282,9 @@ fn update_field_value_from_json(
                 *x = v as i16;
             }
         }
-        FieldValue::U16(x) | FieldValue::C16(x) => {
+        FieldValue::U16(x) | FieldValue::C16(v_ref) => {
             if let Some(v) = json.as_u64() {
-                *x = v as u16;
+                *v_ref = v as u16;
             }
         }
         FieldValue::S32(x) => {
