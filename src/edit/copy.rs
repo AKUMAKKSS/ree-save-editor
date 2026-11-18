@@ -239,13 +239,15 @@ fn get_class_hunter_id(class: &Class) -> Option<String> {
     }
 }
 
-/// 先用只读引用查找目标角色槽位下标，再按索引返回可变引用（完全避免 E0499 二次可变借用报错）
-fn find_character_slot_mut<'a>(
-    save: &'a mut SaveFile,
-    target_hunter_id: Option<&str>,
-) -> Option<&'a mut Class> {
+enum SlotLocation {
+    DataSlot(usize, usize, usize),
+    Root(usize),
+    None,
+}
+
+/// 纯只读定位角色槽位下标，完全不产生任何可变借用冲突
+fn locate_character_slot(save: &SaveFile, target_hunter_id: Option<&str>) -> SlotLocation {
     let data_hash = murmur3("_Data", 0xffffffff);
-    let mut found_indices: Option<(usize, usize, usize)> = None;
 
     for (r_idx, (_, root_class)) in save.fields.iter().enumerate() {
         if let Some((f_idx, data_field)) = root_class
@@ -259,31 +261,23 @@ fn find_character_slot_mut<'a>(
                     for (a_idx, val) in arr.values.iter().enumerate() {
                         if let FieldValue::Class(c) = val {
                             if get_class_hunter_id(c).as_deref() == Some(hid) {
-                                found_indices = Some((r_idx, f_idx, a_idx));
-                                break;
+                                return SlotLocation::DataSlot(r_idx, f_idx, a_idx);
                             }
                         }
                     }
                 }
-                if found_indices.is_none() && !arr.values.is_empty() {
-                    found_indices = Some((r_idx, f_idx, 0));
-                }
-                if found_indices.is_some() {
-                    break;
+                if let Some(FieldValue::Class(_)) = arr.values.first() {
+                    return SlotLocation::DataSlot(r_idx, f_idx, 0);
                 }
             }
         }
     }
 
-    if let Some((r_idx, f_idx, a_idx)) = found_indices {
-        if let FieldValue::Array(arr) = &mut save.fields[r_idx].1.fields[f_idx].value {
-            if let Some(FieldValue::Class(c)) = arr.values.get_mut(a_idx) {
-                return Some(c);
-            }
-        }
+    if !save.fields.is_empty() {
+        SlotLocation::Root(0)
+    } else {
+        SlotLocation::None
     }
-
-    save.fields.first_mut().map(|(_, c)| c)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -300,13 +294,21 @@ impl CopyBuffer {
             let json_val = match self {
                 CopyBuffer::Array(class) => class_to_json(class, type_map),
                 CopyBuffer::Field(field) => field_value_to_json(&field.value, None, type_map),
-                CopyBuffer::Null => {
-                    if let Some(slot_class) = find_character_slot_mut(save, None) {
-                        class_to_json(slot_class, type_map)
-                    } else {
-                        JsonValue::Object(Map::new())
+                CopyBuffer::Null => match locate_character_slot(save, None) {
+                    SlotLocation::DataSlot(r_idx, f_idx, a_idx) => {
+                        if let FieldValue::Array(arr) = &save.fields[r_idx].1.fields[f_idx].value {
+                            if let Some(FieldValue::Class(c)) = arr.values.get(a_idx) {
+                                class_to_json(c, type_map)
+                            } else {
+                                JsonValue::Object(Map::new())
+                            }
+                        } else {
+                            JsonValue::Object(Map::new())
+                        }
                     }
-                }
+                    SlotLocation::Root(r_idx) => class_to_json(&save.fields[r_idx].1, type_map),
+                    SlotLocation::None => JsonValue::Object(Map::new()),
+                },
             };
             let content = serde_json::to_string(&json_val)?;
             std::fs::write(file_path, content)?;
@@ -324,10 +326,23 @@ impl CopyBuffer {
             let parsed: JsonValue = serde_json::from_str(&json_content)?;
 
             let hunter_id = parsed.get("HunterId").and_then(|v| v.as_str());
-            if let Some(target_class) = find_character_slot_mut(save, hunter_id) {
-                update_class_from_json(target_class, &parsed, type_map);
-                *self = CopyBuffer::Array(target_class.clone());
-                return Ok(true);
+            match locate_character_slot(save, hunter_id) {
+                SlotLocation::DataSlot(r_idx, f_idx, a_idx) => {
+                    if let FieldValue::Array(arr) = &mut save.fields[r_idx].1.fields[f_idx].value {
+                        if let Some(FieldValue::Class(c)) = arr.values.get_mut(a_idx) {
+                            update_class_from_json(c, &parsed, type_map);
+                            *self = CopyBuffer::Array((**c).clone());
+                            return Ok(true);
+                        }
+                    }
+                }
+                SlotLocation::Root(r_idx) => {
+                    let c = &mut save.fields[r_idx].1;
+                    update_class_from_json(c, &parsed, type_map);
+                    *self = CopyBuffer::Array(c.clone());
+                    return Ok(true);
+                }
+                SlotLocation::None => {}
             }
         }
         Ok(false)
