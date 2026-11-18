@@ -24,7 +24,31 @@ impl Default for CopyBuffer {
     }
 }
 
-/// 将底层 Class 递归转换为修改器可识别的标准带字段名 JSON
+/// 判断某个 DBSaveData Record 是否为主角或主随从数据（包含 _IncreaseParams 或 _Level）
+fn is_character_record(rec_json: &JsonValue) -> bool {
+    if let Some(contexts) = rec_json.get("Contexts").and_then(|c| c.as_array()) {
+        for ctx in contexts {
+            if ctx.get("_IncreaseParams").is_some() || ctx.get("CurrentJob").is_some() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// 提取 Record 中的 CharacterID 用于导入时精准匹配写回
+fn get_record_chara_id(rec_json: &JsonValue) -> Option<i64> {
+    if let Some(contexts) = rec_json.get("Contexts").and_then(|c| c.as_array()) {
+        for ctx in contexts {
+            if let Some(cid) = ctx.get("CharacterID").and_then(|v| v.as_i64()) {
+                return Some(cid);
+            }
+        }
+    }
+    None
+}
+
+/// 将底层 Class 递归转换为修改器可识别的标准带字段名 JSON（内置 DD2 极限瘦身过滤）
 fn class_to_json(class: &Class, type_map: &TypeMap) -> JsonValue {
     let mut map = Map::new();
     let type_info = type_map.get_by_hash(class.hash);
@@ -35,6 +59,56 @@ fn class_to_json(class: &Class, type_map: &TypeMap) -> JsonValue {
             .map(|fi| fi.name.clone())
             .or_else(|| type_map.get_hash_str(field.hash).cloned())
             .unwrap_or_else(|| format!("0x{:08x}", field.hash));
+
+        // 1. 过滤 DD2 占 4.5MB 的无用腐烂计时器与大地图迷雾冗余字段
+        if matches!(
+            name.as_str(),
+            "0x47d5034f"
+                | "AIMapEffectorData"
+                | "0xf82df8d0"
+                | "0x112332fe"
+                | "0x2f5bd4b8"
+                | "0xef5b125f"
+                | "0x58cfb4c8"
+                | "0xc85b8e98"
+                | "0x60a4c16d"
+                | "MapMaskField"
+                | "MapMaskLocalArea"
+        ) {
+            continue;
+        }
+
+        // 2. 过滤 DD2 DBSaveData.Records 中 4868 个木桶/箱子，仅保留主角与主随从 Record！
+        if name == "Records" {
+            if let FieldValue::Array(arr) = &field.value {
+                let mut filtered = Vec::new();
+                for v in &arr.values {
+                    let jv = field_value_to_json(v, field_info, type_map);
+                    if is_character_record(&jv) {
+                        filtered.push(jv);
+                    }
+                }
+                map.insert(name, JsonValue::Array(filtered));
+                continue;
+            }
+        }
+
+        // 3. 过滤 DD2 ItemStorageSaves 中 _ItemId == 0 的 2600+ 个空槽位（导入时自动还原）
+        if name == "ItemStorageSaves" {
+            if let FieldValue::Array(arr) = &field.value {
+                let mut valid_items = Vec::new();
+                for v in &arr.values {
+                    let jv = field_value_to_json(v, field_info, type_map);
+                    let item_id = jv.get("_ItemId").and_then(|x| x.as_i64()).unwrap_or(0);
+                    if item_id > 0 {
+                        valid_items.push(jv);
+                    }
+                }
+                map.insert(name, JsonValue::Array(valid_items));
+                continue;
+            }
+        }
+
         map.insert(name, field_value_to_json(&field.value, field_info, type_map));
     }
     JsonValue::Object(map)
@@ -98,6 +172,74 @@ fn update_class_from_json(class: &mut Class, json: &JsonValue, type_map: &TypeMa
             };
             let field_info = type_info.and_then(|ti| ti.get_by_hash(hash));
             if let Some(field) = class.fields.iter_mut().find(|f| f.hash == hash) {
+                // 特殊处理 1：DD2 的 Records 数组（按 CharacterID 精准匹配写回主角与主随从，不动其他 4868 个木桶记录）
+                if key == "Records" {
+                    if let (FieldValue::Array(arr), Some(jarr)) = (&mut field.value, jval.as_array()) {
+                        for jrec in jarr {
+                            if let Some(target_cid) = get_record_chara_id(jrec) {
+                                for existing_val in &mut arr.values {
+                                    if let FieldValue::Class(c) = existing_val {
+                                        let cur_json = class_to_json(c, type_map);
+                                        if get_record_chara_id(&cur_json) == Some(target_cid) {
+                                            update_class_from_json(c, jrec, type_map);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                }
+
+                // 特殊处理 2：DD2 的 ItemStorageSaves 数组（将有效物品写入前 N 格，剩余格子自动清零为空槽）
+                if key == "ItemStorageSaves" {
+                    if let (FieldValue::Array(arr), Some(jarr)) = (&mut field.value, jval.as_array()) {
+                        let empty_template = serde_json::json!({
+                            "0x84705117": [0, 0, 0, 0],
+                            "0x0ae776cc": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                            "0x08214e48": 0,
+                            "_StorageId": 0,
+                            "_UpdateIndex": 0,
+                            "_CharaId": 0,
+                            "_ItemId": 0,
+                            "_Num": 0,
+                            "_EquipSlot": 0,
+                            "_ArisenEquipNo": 0,
+                            "_IsEquipped": 0,
+                            "_IsNew": 0
+                        });
+                        // 如果新增物品总数超过原数组槽位数，自动克隆标准 12 字段槽位扩容
+                        let std_template = arr
+                            .values
+                            .iter()
+                            .find(|v| matches!(v, FieldValue::Class(c) if c.num_fields == 12))
+                            .cloned();
+                        let std_hash = std_template.as_ref().and_then(|v| match v {
+                            FieldValue::Class(c) => Some(c.hash),
+                            _ => None,
+                        });
+                        while arr.values.len() < jarr.len() {
+                            if let Some(tpl) = &std_template {
+                                arr.values.push(tpl.clone());
+                                if let (Some(hashes), Some(h)) = (&mut arr.hashes, std_hash) {
+                                    hashes.push(h);
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                        for (idx, item_slot) in arr.values.iter_mut().enumerate() {
+                            if let Some(jitem) = jarr.get(idx) {
+                                update_field_value_from_json(item_slot, jitem, field_info, type_map);
+                            } else {
+                                update_field_value_from_json(item_slot, &empty_template, field_info, type_map);
+                            }
+                        }
+                        continue;
+                    }
+                }
+
                 update_field_value_from_json(&mut field.value, jval, field_info, type_map);
             }
         }
@@ -245,7 +387,6 @@ enum SlotLocation {
     None,
 }
 
-/// 纯只读返回下标枚举（不返回任何可变引用，100% 杜绝 E0499）
 fn locate_character_slot(save: &SaveFile, target_hunter_id: Option<&str>) -> SlotLocation {
     let data_hash = murmur3("_Data", 0xffffffff);
 
