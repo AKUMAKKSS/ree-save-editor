@@ -153,13 +153,20 @@ impl Editable for SaveFlags {
 
 impl Editable for SaveFile {
     fn edit(&mut self, ui: &mut Ui, ctx: &mut EditContext) -> EditResponse {
-        // 原生文件导入导出按钮
+        let mut changed = false;
+        // 原生文件导入导出按钮（支持直接自动定位角色槽位或使用 Copy 选定的槽位）
         ui.horizontal(|ui| {
-            if ui.button("📁 导出选定槽位到 JSON").clicked() {
-                let _ = ctx.copy_buffer.export_to_file();
+            if ui.button("📁 导出选定角色到 JSON (小体积标准格式)").clicked() {
+                if let Err(e) = ctx.copy_buffer.export_to_file(self, ctx.type_map) {
+                    log::error!("[Export Error] {e}");
+                }
             }
-            if ui.button("📂 从 JSON 导入并覆盖槽位").clicked() {
-                let _ = ctx.copy_buffer.import_from_file();
+            if ui.button("📂 从修改器 JSON 导入并写回存档").clicked() {
+                match ctx.copy_buffer.import_from_file(self, ctx.type_map) {
+                    Ok(true) => changed = true,
+                    Ok(false) => {}
+                    Err(e) => log::error!("[Import Error] {e}"),
+                }
             }
         });
 
@@ -189,6 +196,10 @@ impl Editable for SaveFile {
                     field.1.edit(ui, &mut child_ctx);
                 });
         }
-        EditResponse::default()
+        if changed {
+            EditResponse::change()
+        } else {
+            EditResponse::default()
+        }
     }
 }
